@@ -1,0 +1,344 @@
+/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation;
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * { this program is 
+ * }
+ */
+
+#include "ns3/core-module.h"
+#include "ns3/network-module.h"
+#include "ns3/mobility-module.h"
+#include "ns3/config-store-module.h"
+#include "ns3/wifi-module.h"
+#include "ns3/internet-module.h"
+#include "ns3/olsr-module.h"
+#include "ns3/ipv4-header.h"
+#include "ns3/ipv4-static-routing-helper.h"
+#include "ns3/ipv4-list-routing-helper.h"
+#include "ns3/packet.h"
+#include "ns3/applications-module.h"
+#include "ns3/flow-monitor-helper.h"
+#include "ns3/flow-monitor-module.h"
+#include "ns3/netanim-module.h"
+
+#include <random>
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
+#include <iomanip>
+
+#define Nodes 50
+
+int  arrayCheck(uint32_t, uint32_t, uint32_t); 
+
+uint32_t port = 0;
+
+uint32_t *a=new uint32_t[Nodes];  
+uint32_t *h=new uint32_t[Nodes];
+double   *st=new double[Nodes];
+
+
+using namespace ns3;
+
+NS_LOG_COMPONENT_DEFINE ("my-sim");
+
+class NetSim {
+    public :
+	NetSim();
+
+	virtual void Configure(StringValue);
+        virtual void CreateNetworkTopology ();
+        virtual void ConfigureDataLinkLayer(bool, StringValue);
+        virtual void MobilityModel();
+        virtual void ConfigureNetworkLayer ();
+        virtual void StartApplication(uint32_t, uint32_t, double, double, double);
+        virtual int  DataArrivalRate(double, double);
+        virtual void random();
+        virtual void randomst();
+
+        Ptr<Node>    *n;
+	
+	uint32_t      nWifiNodes;
+        uint32_t      hanni=Nodes;
+        uint32_t      hanntei=0;
+        uint32_t      z=0;
+
+        //uint32_t *a=new uint32_t[hanni];  
+        //uint32_t *h=new uint32_t[hanni];
+        //uint32_t *z=new uint32_t[hanni];
+
+        NodeContainer  wlanNodes;
+	NodeContainer   allNodes;
+	NetDeviceContainer devices;
+        Ipv4InterfaceContainer ifs;
+};
+
+int arrayCheck(uint32_t *ary, uint32_t date, uint32_t last_index)
+{
+  uint32_t count;
+  for(count=0;count<last_index;count++){
+    if(*(ary+count)==date) return 1;
+  }
+  return 0;
+}
+
+
+void NetSim::random()
+{       
+        std::random_device rnd;     // 非決定的な乱数生成器を生成
+        std::mt19937 mt(rnd());     //  メルセンヌ・ツイスタの32ビット版、引数は初期シード値
+        std::uniform_int_distribution<> rand100(0, hanni-1);        // [0, 99] 範囲の一様乱数
+               
+        for (uint32_t i = 0; i < hanni; ++i) {
+        
+              do{
+                      hanntei=rand100(mt);//乱数生成;
+                      if(1==arrayCheck(h,hanntei,z))
+                      {
+                      }
+                      else
+                      {
+                              std::cout << hanntei<<":";
+                              break;
+                      }
+              }while(1);
+              a[i]=hanntei;//乱数生成
+              h[i]=a[i];//copy
+              z++;
+        }
+        std::cout <<"\n";
+}
+
+void NetSim::randomst()
+{
+         for (uint32_t i = 0; i < hanni; ++i) {
+                  st[i]=0.02*i; 
+                  std::cout << st[i]<<"\n";
+         }
+}
+
+int NetSim::DataArrivalRate(double Rxsum, double Txsum)
+{
+        double Dar = Rxsum / Txsum;
+        std::cout << "  DataArrivalRate =  " << Dar << "\n";
+        return Dar;
+}
+
+NetSim::NetSim() 
+{
+	nWifiNodes = 50;
+}
+
+void NetSim::Configure(StringValue phyMode)
+{
+        // disable fragmentation for frames below 2200 bytes
+        Config::SetDefault ("ns3::WifiRemoteStationManager::FragmentationThreshold", StringValue ("2200"));
+        // turn off RTS/CTS for frames below 2200 bytes
+        Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue ("2200"));
+        // Fix non-unicast data rate to be the same as that of unicast
+        //Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode", StringValue (phyMode));
+        Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode", phyMode);
+}
+
+void NetSim::CreateNetworkTopology()
+{
+	n = new Ptr<Node> [nWifiNodes];
+        for (uint32_t i = 0; i < nWifiNodes; ++i) {
+                n[i] = CreateObject<Node> ();
+                wlanNodes.Add (n[i]);
+        }
+	allNodes.Add(wlanNodes);     
+}
+
+void NetSim::ConfigureDataLinkLayer(bool verbose, StringValue phyMode)
+{       
+	// The below set of helpers will help us to put together the wifi NICs we want
+	WifiHelper wifi;
+	if (verbose)
+		wifi.EnableLogComponents ();  // Turn on all Wifi logging
+	wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
+	wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
+				      "DataMode"   , phyMode,
+				      "ControlMode", phyMode);
+
+	YansWifiChannelHelper wifiChannel;
+	wifiChannel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
+        wifiChannel.AddPropagationLoss ("ns3::RangePropagationLossModel");
+	
+	YansWifiPhyHelper wifiPhy =  YansWifiPhyHelper::Default ();
+	wifiPhy.SetPcapDataLinkType (YansWifiPhyHelper::DLT_IEEE802_11_RADIO); 
+	wifiPhy.SetChannel (wifiChannel.Create ());
+
+	// Add a non-QoS upper mac, and disable rate control
+	WifiMacHelper wifiMac;
+        wifiMac.SetType  ("ns3::AdhocWifiMac");
+	devices = wifi.Install (wifiPhy, wifiMac, allNodes);
+	wifiPhy.EnablePcap ("wifi-simple-adhoc-grid", devices);
+}
+
+void NetSim::MobilityModel()    //mobility model start
+{       
+         MobilityHelper mobilitas;
+         ObjectFactory pos;
+         pos.SetTypeId("ns3::RandomRectanglePositionAllocator");
+         pos.Set ("X", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=500.0]"));
+         pos.Set ("Y", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=500.0]"));
+         Ptr<PositionAllocator> posAlloc = pos.Create()->GetObject<PositionAllocator>();
+         mobilitas.SetMobilityModel("ns3::RandomWaypointMobilityModel", 
+                                   "Speed", StringValue ("ns3::UniformRandomVariable[Min=0|Max=2]"),
+                                   "Pause", StringValue ("ns3::ConstantRandomVariable[Constant=0.0]"),
+                                   "PositionAllocator", PointerValue(posAlloc));
+         mobilitas.SetPositionAllocator (posAlloc);
+         mobilitas.Install(allNodes);
+}
+
+void NetSim::ConfigureNetworkLayer ()
+{       
+        OlsrHelper olsr; // use AODV routing protocol
+//add
+        Ipv4StaticRoutingHelper staticRouting;
+//add
+        Ipv4ListRoutingHelper list;
+        list.Add (staticRouting, 0);
+        list.Add (olsr, 10);
+
+        InternetStackHelper internet;
+	internet.SetRoutingHelper(list);
+	internet.Install (allNodes);
+//
+	Ipv4AddressHelper ipv4;
+        NS_LOG_INFO ("Assign IP Addresses.");
+	ipv4.SetBase ("192.168.1.0", "255.255.255.0");
+	ifs = ipv4.Assign (devices);
+//add
+        // Trace routing tables
+        Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper> ("wifi-simple-adhoc-grid.routes", std::ios::out);
+        olsr.PrintRoutingTableAllEvery (Seconds (2), routingStream);
+        Ptr<OutputStreamWrapper> neighborStream = Create<OutputStreamWrapper> ("wifi-simple-adhoc-grid.neighbors", std::ios::out);
+        olsr.PrintNeighborCacheAllEvery (Seconds (2), neighborStream);
+        // To do-- enable an IP-level trace that shows forwarding events only
+//
+}
+
+void NetSim::StartApplication(uint32_t packetSize, uint32_t numPackets, double interval, double timex, double timey)
+{
+        NetSim sim;
+        uint32_t i = 0;
+        uint32_t j = 0;
+        
+        sim.random();
+        for (i = 0; i < Nodes; i++) {
+                UdpServerHelper Server (port);
+                ApplicationContainer serverApps = Server.Install (allNodes.Get (a[j]));//allNodes.Get (sinkNode)
+                serverApps.Start (Seconds (timex+st[i]));//timex+st[i]
+                serverApps.Stop (Seconds (timey+st[i]));//timey+st[i]
+
+                UdpClientHelper Client (ifs.GetAddress (a[j]), port);//ifs.GetAddress (sinkNode)
+                Client.SetAttribute ("MaxPackets", UintegerValue (numPackets));
+                Client.SetAttribute ("Interval", TimeValue (Seconds (interval)));
+                Client.SetAttribute ("PacketSize", UintegerValue (packetSize));
+        
+                ApplicationContainer clientApps = Client.Install (allNodes.Get (i));//allNodes.Get (sourceNode)
+                clientApps.Start (Seconds (timex+st[i]));//timex+st[i]
+                clientApps.Stop (Seconds (timey+st[i]));//timey+st[i]
+                j=j+1;
+         }
+        port=port+1;
+        if (port==698)
+                port=port+1;
+        if (port==2152)
+                port=port+1;
+        std::cout << "-------------------------------------------------\n";
+}
+
+int main (int argc, char *argv[])
+{
+        NS_LOG_UNCOND ("my-sim");
+
+        NetSim sim;
+
+        std::string phyMode ("DsssRate11Mbps");
+        bool        verbose    = false;
+        bool        sendFlag   = false; // send pkts with dataRate
+        DataRate    dataRate   = DataRate ("512Kbps");
+        uint32_t    packetSize = 64; // bytes
+        uint32_t    numPackets = 3600;
+        double      interval   = 0.25; // seconds
+        double      totalRx    = 0.0;
+        double      totalTx    = 0.0;
+        double      count      = 0.0;            
+        double      timex      = 15.0; 
+        double      timey      = 15.0;
+
+        CommandLine cmd;
+        cmd.AddValue ("phyMode"   , "Wifi Phy mode", phyMode);
+        cmd.AddValue ("packetSize", "size of application packet sent", packetSize);
+        cmd.AddValue ("dataRate"  , "dataRate of application packet sent", dataRate);
+        cmd.AddValue ("numPackets", "number of packets generated", numPackets);
+        cmd.AddValue ("interval"  , "interval (seconds) between packets", interval);
+        cmd.AddValue ("sendFlag"  , "send flag (1: use pkt data rate, 0: use number of pkts)", sendFlag);
+        cmd.AddValue ("verbose"   , "turn on all WifiNetDevice log components", verbose);
+        cmd.Parse (argc, argv);
+        
+        sim.randomst();
+        sim.Configure(phyMode);
+        sim.CreateNetworkTopology();
+        sim.ConfigureDataLinkLayer(verbose, phyMode);
+        sim.MobilityModel();
+        sim.ConfigureNetworkLayer ();
+        for (uint32_t i = 0; i < 3600; i++) {
+                timex=timex+0.25*i;
+                timey=timey+0.25*(i+1);
+                sim.StartApplication (packetSize, numPackets, interval,timex,timey);        
+        }
+        
+        FlowMonitorHelper flowmon;
+        Ptr<FlowMonitor> monitor = flowmon.InstallAll ();
+
+        Simulator::Stop (Seconds (1000.0));
+
+        // Create the animation object and configure for specified output
+        AnimationInterface anim ("manet2.xml");
+        anim.EnablePacketMetadata (); // Optional
+        //anim.EnableIpv4L3ProtocolCounters (Seconds (30), Seconds (100)); // Optional
+        //anim.EnableIpv4RouteTracking("routing-table.xml",Seconds(30),Seconds(100),Seconds(0.2));
+
+        Simulator::Run ();
+        
+        // Print per flow statistics
+        monitor->CheckForLostPackets ();
+        Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
+        FlowMonitor::FlowStatsContainer stats = monitor->GetFlowStats ();
+        for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
+          {
+            //Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
+            //std::cout << "Flow " << i->first << " (" << t.sourceAddress << " -> " << t.destinationAddress << ")\n";
+            //std::cout << "  Tx Packets: " << i->second.txPackets << "\n";
+            //std::cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
+            totalTx =  totalTx + i->second.txPackets;
+            //std::cout << "  Rx Packets: " << i->second.rxPackets << "\n";
+            //std::cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
+            totalRx =  totalRx + i->second.rxPackets;
+            count ++;
+          }
+        NS_LOG_UNCOND(">--------------------------------------<\n");
+        std::cout << "  count =  " << count << "\n";
+        std::cout << "  Total Rx =  " << totalRx << "\n";  
+        std::cout << "  Total Tx =  " << totalTx << "\n";
+           
+        sim.DataArrivalRate(totalRx,totalTx); 
+
+        Simulator::Destroy ();
+}
